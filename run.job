@@ -1,0 +1,15 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=48GB
+#SBATCH --time=24:00:00
+#SBATCH --partition=gpu
+#SBATCH --gpus-per-task=a100:1
+#SBATCH --account=rostamim_919
+#SBATCH --constraint=a100-80gb
+#SBATCH --output=/project/rostamim_919/aminbana/Logs/LLM_Proj-%x.%j.out
+
+nvidia-smi
+
+python intervention.py --model_index 5 --in_domain --open_vocab --save_clean_logits --extract_hidden_states --emotion_probing --appraisal_probing --zero_intervention --activation_patching --attention_weights
