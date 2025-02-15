@@ -6,6 +6,7 @@
 *.pkl
 *.pt
 *.png
+!figs/intro fig.png
 *.jpg
 *.jpeg
 *.gif

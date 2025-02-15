@@ -2,7 +2,7 @@
 
 This is the official repository for ["Mechanistic Interpretability of Emotion Inference in Large Language Models"](https://arxiv.org/abs/2502.05489)
 
-![alt text](figs/intro fig.png)
+![My Figure](figs/intro%20fig.png)
 
 ## Requirements
 
