@@ -619,3 +619,51 @@ if args.appraisal_surgery:
             coeffs = '_'.join([str(c) for c in coeffs_])
             
             torch.save(results, f'outputs/{model_short_name}/appraisal_surgery/appraisal_surgery_{appraisals_to_change}_fixed_{appraisals_to_fix}_coeffs_{coeffs}_layers_{layers_}_span_{span}_locs_{locs}_tokens_{promotion_tokens}_Beta1_{Beta1}_Beta2_{Beta2}_normalization_{do_normalization}.pt')
+
+if args.fine_grained_decomposition:
+    logger.info("--------------------------------- Fine-Grained Emotion Decomposition ---------------------------------")
+    
+    # Filter the dataset for subtypes (here: anger and sadness)
+    subtype_df = train_data[train_data['emotion'].isin(['anger', 'sadness'])].copy()
+    # Create binary labels: 0 for anger, 1 for sadness
+    subtype_df['subtype_id'] = subtype_df['emotion'].apply(lambda x: 0 if x == 'anger' else 1)
+    
+    # Prepare text inputs and labels for the subtype task
+    subtype_texts = subtype_df['input_text'].tolist()
+    subtype_labels = torch.tensor(subtype_df['subtype_id'].values)
+    
+    # Create a dataset and dataloader for the fine-grained task
+    subtype_dataset = TextDataset(subtype_texts, subtype_labels)
+    subtype_dataloader = DataLoader(subtype_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    
+    # Set up extraction parameters (you can adjust these as needed)
+    extraction_locs = [3, 6, 7]      # For example, positions in the activation output
+    extraction_tokens = [-1]         # We focus on the last token's activation
+    extraction_layers = list(range(model.config.num_hidden_layers))
+    
+    logger.info("Extracting hidden states for fine-grained emotion decomposition...")
+    # Extract hidden states on the new dataloader
+    all_hidden_states = extract_hidden_states(subtype_dataloader, tokenizer, model, logger,
+                                              extraction_locs=extraction_locs,
+                                              extraction_layers=extraction_layers,
+                                              extraction_tokens=extraction_tokens)
+    size_on_memory = all_hidden_states.element_size() * all_hidden_states.numel()
+    logger.info(f"Hidden states tensor size: {size_on_memory / (1024 ** 2):.2f} MB")
+    
+    # Initialize a dictionary to store the probing results at each layer, location, and token position
+    results = {}
+    for i, layer in tqdm(enumerate(extraction_layers), total=len(extraction_layers), desc="Probing Layers"):
+        results[layer] = {}
+        for j, loc in enumerate(extraction_locs):
+            results[layer][loc] = {}
+            for k, token in enumerate(extraction_tokens):
+                # Extract features for the given layer, location, and token: shape = [num_samples, hidden_size]
+                features = all_hidden_states[:, i, j, k]
+                # Train a linear probe to distinguish between the two subtypes (anger vs. sadness)
+                probe_result = probe_classification(features, subtype_labels, return_weights=True)
+                results[layer][loc][token] = probe_result
+    
+    # Save the fine-grained emotion decomposition probing results
+    output_path = f'outputs/{model_short_name}/fine_grained_emotion_decomposition_layers_{extraction_layers}_locs_{extraction_locs}_tokens_{extraction_tokens}.pt'
+    torch.save(results, output_path)
+    logger.info(f"Saved fine-grained emotion decomposition results to {output_path}")
