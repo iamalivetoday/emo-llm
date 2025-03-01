@@ -667,3 +667,54 @@ if args.fine_grained_decomposition:
     output_path = f'outputs/{model_short_name}/fine_grained_emotion_decomposition_layers_{extraction_layers}_locs_{extraction_locs}_tokens_{extraction_tokens}.pt'
     torch.save(results, output_path)
     logger.info(f"Saved fine-grained emotion decomposition results to {output_path}")
+
+if args.differentiation_mechanisms:
+    logger.info("--------------------------------- Differentiation Mechanisms ---------------------------------")
+    
+    # Define the "bad" emotion subtypes to study.
+    bad_emotions = ['anger', 'sadness', 'fear', 'disgust', 'guilt', 'shame']
+    # Filter the training data for these emotions.
+    diff_df = train_data[train_data['emotion'].isin(bad_emotions)].copy()
+    # Create multi-class labels (0: anger, 1: sadness, etc.)
+    diff_df['diff_id'] = diff_df['emotion'].apply(lambda x: bad_emotions.index(x))
+    
+    # Prepare texts and labels.
+    diff_texts = diff_df['input_text'].tolist()
+    diff_labels = torch.tensor(diff_df['diff_id'].values)
+    
+    # Create a dataset and dataloader for the differentiation task.
+    diff_dataset = TextDataset(diff_texts, diff_labels)
+    diff_dataloader = DataLoader(diff_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    
+    # Extraction settings: you can adjust these as needed.
+    extraction_locs = [3, 6, 7]       # Example hook locations.
+    extraction_tokens = [-1]          # Focusing on the last token's hidden state.
+    extraction_layers = list(range(model.config.num_hidden_layers))
+    
+    logger.info("Extracting hidden states for differentiation mechanisms...")
+    # Use your existing function to extract hidden states.
+    all_hidden_states = extract_hidden_states(diff_dataloader, tokenizer, model, logger,
+                                              extraction_locs=extraction_locs,
+                                              extraction_layers=extraction_layers,
+                                              extraction_tokens=extraction_tokens)
+    size_on_memory = all_hidden_states.element_size() * all_hidden_states.numel()
+    logger.info(f"Hidden states tensor size: {size_on_memory / (1024 ** 2):.2f} MB")
+    
+    # For each layer (and each location/token position), train a linear probe 
+    # to classify the "bad" emotion subtype.
+    diff_results = {}
+    for i, layer in tqdm(enumerate(extraction_layers), total=len(extraction_layers), desc="Probing Layers"):
+        diff_results[layer] = {}
+        for j, loc in enumerate(extraction_locs):
+            diff_results[layer][loc] = {}
+            for k, token in enumerate(extraction_tokens):
+                # Extract features from the hidden states:
+                features = all_hidden_states[:, i, j, k]  # Shape: [num_samples, hidden_size]
+                # Train a linear classifier using your existing probe_classification function.
+                probe_result = probe_classification(features, diff_labels, return_weights=True)
+                diff_results[layer][loc][token] = probe_result
+    
+    # Save the probing results.
+    output_path = f'outputs/{model_short_name}/differentiation_mechanisms_layers_{extraction_layers}_locs_{extraction_locs}_tokens_{extraction_tokens}.pt'
+    torch.save(diff_results, output_path)
+    logger.info(f"Saved differentiation mechanisms results to {output_path}")
